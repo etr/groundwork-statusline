@@ -1,5 +1,5 @@
 ---
-name: install
+name: groundwork-statusline:install
 description: Install the groundwork-statusline into Claude Code settings
 allowed_tools:
   - Read

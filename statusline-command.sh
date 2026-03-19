@@ -175,11 +175,27 @@ weekly_util=""
         usage_json=$(cat "$USAGE_CACHE")
     else
         TOKEN=$(python3 -c "
-import json, sys
+import json, sys, subprocess, os
+creds_json = None
+# Try credentials file first (Linux)
+creds_file = os.path.join(os.environ['HOME'], '.claude', '.credentials.json')
 try:
-    d = json.load(open('$HOME/.claude/.credentials.json'))
-    print(d['claudeAiOauth']['accessToken'])
+    with open(creds_file) as f:
+        creds_json = json.load(f)
 except Exception:
+    pass
+# Fall back to macOS Keychain
+if creds_json is None:
+    try:
+        raw = subprocess.check_output(
+            ['security', 'find-generic-password', '-s', 'Claude Code-credentials', '-w'],
+            stderr=subprocess.DEVNULL, text=True).strip()
+        creds_json = json.loads(raw)
+    except Exception:
+        pass
+if creds_json:
+    print(creds_json['claudeAiOauth']['accessToken'])
+else:
     sys.exit(1)
 " 2>/dev/null)
         if [ -n "$TOKEN" ]; then
@@ -209,34 +225,51 @@ except Exception:
 
 format_reset_time() {
     local resets_at="$1" mode="$2"
-    local reset_epoch now_epoch diff
-    reset_epoch=$(date -d "$resets_at" +%s 2>/dev/null) || return
-    now_epoch=$(date +%s)
-    diff=$(( reset_epoch - now_epoch ))
-    [ "$diff" -lt 0 ] && diff=0
-    if [ "$diff" -lt 3600 ]; then
-        local mins=$(( (diff + 59) / 60 ))
-        echo " (${mins}m)"
-    elif [ "$mode" = "session" ] || [ "$diff" -lt 86400 ]; then
-        local hrs=$(( diff / 3600 ))
-        local mins=$(( (diff % 3600 + 59) / 60 ))
-        [ "$mins" -eq 60 ] && mins=0 && hrs=$(( hrs + 1 ))
-        if [ "$mins" -gt 0 ]; then
-            echo " (${hrs}h ${mins}m)"
-        else
-            echo " (${hrs}h)"
-        fi
-    else
-        local reset_date today_date tomorrow_date
-        reset_date=$(date -d "$resets_at" '+%Y-%m-%d')
-        today_date=$(date '+%Y-%m-%d')
-        tomorrow_date=$(date -d "tomorrow" '+%Y-%m-%d')
-        if [ "$reset_date" = "$tomorrow_date" ]; then
-            echo " (Tomorrow $(date -d "$resets_at" '+%-I%p'))"
-        else
-            echo " ($(date -d "$resets_at" '+%A %-d %B %-I%p'))"
-        fi
-    fi
+    python3 -c "
+import sys
+from datetime import datetime, timezone, timedelta
+
+resets_at = '$resets_at'
+mode = '$mode'
+
+try:
+    # Parse ISO 8601 timestamp
+    ra = resets_at.replace('Z', '+00:00')
+    reset_dt = datetime.fromisoformat(ra)
+    now_dt = datetime.now(timezone.utc)
+    diff = int((reset_dt - now_dt).total_seconds())
+    if diff < 0:
+        diff = 0
+
+    if diff < 3600:
+        mins = (diff + 59) // 60
+        print(f' ({mins}m)')
+    elif mode == 'session' or diff < 86400:
+        hrs = diff // 3600
+        mins = (diff % 3600 + 59) // 60
+        if mins == 60:
+            mins = 0
+            hrs += 1
+        if mins > 0:
+            print(f' ({hrs}h {mins}m)')
+        else:
+            print(f' ({hrs}h)')
+    else:
+        reset_local = reset_dt.astimezone()
+        now_local = now_dt.astimezone()
+        tomorrow = (now_local + timedelta(days=1)).date()
+        reset_date = reset_local.date()
+        hr = reset_local.strftime('%I').lstrip('0') + reset_local.strftime('%p')
+        if reset_date == tomorrow:
+            print(f' (Tomorrow {hr})')
+        else:
+            day_name = reset_local.strftime('%A')
+            day_num = reset_local.day
+            month_name = reset_local.strftime('%B')
+            print(f' ({day_name} {day_num} {month_name} {hr})')
+except Exception:
+    pass
+" 2>/dev/null
 }
 
 session_reset_str=""

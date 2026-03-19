@@ -1,5 +1,5 @@
 ---
-name: uninstall
+name: groundwork-statusline:uninstall
 description: Remove the groundwork-statusline from Claude Code settings
 allowed_tools:
   - Read
