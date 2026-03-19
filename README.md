@@ -2,6 +2,8 @@
 
 A 3-line statusline for Claude Code showing model info, context window usage, and git/project context.
 
+![screenshot](screenshot.png)
+
 ## What it displays
 
 - **Line 1**: Model name, effort level, bells-and-whistles mute indicator
