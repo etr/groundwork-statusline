@@ -72,26 +72,43 @@ if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
         [ -n "$pr_num" ] && git_pr="#${pr_num}"
     fi
 
-    # Groundwork monorepo project indicator
-    gw_segment=""
-    if [ -d "$HOME/.claude/plugins/cache/groundwork-marketplace" ]; then
-        if [ -f "${git_root}/.groundwork.yml" ]; then
-            gw_local_file="${git_root}/.groundwork.local"
-            if [ -f "$gw_local_file" ] && [ -s "$gw_local_file" ]; then
-                gw_line=$(head -1 "$gw_local_file")
-                gw_project="${gw_line#active_project: }"
-                gw_segment=" \033[2m|\033[0m \033[32mProject: ${gw_project}\033[0m"
-            else
-                gw_segment=" \033[2m|\033[0m \033[2mNo Project Selected\033[0m"
-            fi
-        fi
-    fi
-
     # Build colored git segment
     if [ -n "$git_pr" ]; then
-        git_info=" \033[2m(\033[0m\033[33m${git_repo}\033[0m\033[2m:\033[0m\033[96m${git_branch}\033[0m \033[35m${git_pr}\033[0m${gw_segment}\033[2m)\033[0m"
+        git_info=" \033[2m(\033[0m\033[33m${git_repo}\033[0m\033[2m:\033[0m\033[96m${git_branch}\033[0m \033[35m${git_pr}\033[0m\033[2m)\033[0m"
     else
-        git_info=" \033[2m(\033[0m\033[33m${git_repo}\033[0m\033[2m:\033[0m\033[96m${git_branch}\033[0m${gw_segment}\033[2m)\033[0m"
+        git_info=" \033[2m(\033[0m\033[33m${git_repo}\033[0m\033[2m:\033[0m\033[96m${git_branch}\033[0m\033[2m)\033[0m"
+    fi
+fi
+
+# Groundwork project indicator (works with or without git)
+gw_segment=""
+gw_root="${git_root:-$cwd}"
+if [ -d "$HOME/.claude/plugins/cache/groundwork-marketplace" ]; then
+    if [ -f "${gw_root}/.groundwork.yml" ]; then
+        gw_project=""
+        # Read from repo-local session file
+        gw_session_id=$(cat "$HOME/.claude/groundwork-state/current-session-id" 2>/dev/null)
+        if [ -n "$gw_session_id" ]; then
+            gw_session_file="${gw_root}/.claude/groundwork-state/sessions/${gw_session_id}.json"
+            if [ -f "$gw_session_file" ]; then
+                gw_project=$(jq -r '.project // empty' "$gw_session_file" 2>/dev/null)
+            fi
+        fi
+        # Fallback: find most recent session file for this dir
+        if [ -z "$gw_project" ]; then
+            gw_sessions_dir="${gw_root}/.claude/groundwork-state/sessions"
+            if [ -d "$gw_sessions_dir" ]; then
+                gw_latest=$(ls -t "$gw_sessions_dir"/*.json 2>/dev/null | head -1)
+                if [ -n "$gw_latest" ]; then
+                    gw_project=$(jq -r '.project // empty' "$gw_latest" 2>/dev/null)
+                fi
+            fi
+        fi
+        if [ -n "$gw_project" ]; then
+            gw_segment=" \033[2m|\033[0m \033[32mProject: ${gw_project}\033[0m"
+        else
+            gw_segment=" \033[2m|\033[0m \033[2mNo Project Selected\033[0m"
+        fi
     fi
 fi
 
@@ -299,3 +316,4 @@ fi
 printf "\n"
 printf "\033[01;34m%s\033[00m" "${cwd}"
 printf "%b" "${git_info}"
+printf "%b" "${gw_segment}"
