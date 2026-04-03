@@ -1,5 +1,5 @@
 {
   "name": "groundwork-statusline",
   "description": "3-line statusline showing model/effort, context window usage with API utilization, and git/project info",
-  "version": "1.2.1"
+  "version": "1.2.2"
 }

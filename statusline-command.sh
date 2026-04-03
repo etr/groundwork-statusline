@@ -89,14 +89,14 @@ if [ -d "$HOME/.claude/plugins/cache/groundwork-marketplace" ]; then
         # Read from home-dir session file
         gw_session_id=$(cat "$HOME/.claude/groundwork-state/current-session-id" 2>/dev/null)
         if [ -n "$gw_session_id" ]; then
-            gw_session_file="$HOME/.claude/groundwork-state/session/${gw_session_id}.json"
+            gw_session_file="$HOME/.claude/groundwork-state/sessions/${gw_session_id}.json"
             if [ -f "$gw_session_file" ]; then
                 gw_project=$(jq -r '.project // empty' "$gw_session_file" 2>/dev/null)
             fi
         fi
         # Fallback: find most recent session file for this repo
         if [ -z "$gw_project" ]; then
-            gw_sessions_dir="$HOME/.claude/groundwork-state/session"
+            gw_sessions_dir="$HOME/.claude/groundwork-state/sessions"
             if [ -d "$gw_sessions_dir" ]; then
                 gw_latest=$(ls -t "$gw_sessions_dir"/*.json 2>/dev/null | head -1)
                 if [ -n "$gw_latest" ]; then
