@@ -81,29 +81,68 @@ if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
 fi
 
 # Groundwork project indicator (works with or without git)
+#
+# State layout (must mirror groundwork plugin lib/project-context.js):
+#   ~/.claude/groundwork-state/panes/<paneKey>__<repoSlug>.json
+#
+# paneKey is the terminal-pane TTY (e.g. pts_3) so concurrent Claude
+# sessions in different panes don't clobber each other's selections.
+# repoSlug is the absolute main-repo-root path with '/' replaced by '_'.
+# Both derivations must stay in sync with getPaneKey()/persistSelection()
+# in groundwork's project-context.js.
 gw_segment=""
 gw_root="${git_root:-$cwd}"
 if [ -d "$HOME/.claude/plugins/cache/groundwork-marketplace" ]; then
     if [ -f "${gw_root}/.groundwork.yml" ]; then
         gw_project=""
-        # Read from home-dir session file
-        gw_session_id=$(cat "$HOME/.claude/groundwork-state/current-session-id" 2>/dev/null)
-        if [ -n "$gw_session_id" ]; then
-            gw_session_file="$HOME/.claude/groundwork-state/sessions/${gw_session_id}.json"
-            if [ -f "$gw_session_file" ]; then
-                gw_project=$(jq -r '.project // empty' "$gw_session_file" 2>/dev/null)
-            fi
+
+        # 1. Resolve pane key (tmux fast path → ps walk → cwd-hash fallback)
+        gw_pane_tty=""
+        if [ -n "$TMUX_PANE" ]; then
+            gw_pane_tty=$(tmux display-message -t "$TMUX_PANE" -p '#{pane_tty}' 2>/dev/null)
         fi
-        # Fallback: find most recent session file for this repo
-        if [ -z "$gw_project" ]; then
-            gw_sessions_dir="$HOME/.claude/groundwork-state/sessions"
-            if [ -d "$gw_sessions_dir" ]; then
-                gw_latest=$(ls -t "$gw_sessions_dir"/*.json 2>/dev/null | head -1)
-                if [ -n "$gw_latest" ]; then
-                    gw_project=$(jq -r '.project // empty' "$gw_latest" 2>/dev/null)
+        if [ -z "$gw_pane_tty" ] || [ "$gw_pane_tty" = "?" ]; then
+            gw_pane_tty=""
+            _pid=$$
+            while [ "$_pid" -gt 1 ]; do
+                _raw=$(ps -o tty= -p "$_pid" 2>/dev/null | tr -d ' ')
+                if [ -n "$_raw" ] && [ "$_raw" != "?" ]; then
+                    gw_pane_tty="/dev/$_raw"
+                    break
                 fi
-            fi
+                _new_pid=$(ps -o ppid= -p "$_pid" 2>/dev/null | tr -d ' ')
+                if [ -z "$_new_pid" ] || [ "$_new_pid" = "$_pid" ]; then
+                    break
+                fi
+                _pid="$_new_pid"
+            done
         fi
+
+        if [ -n "$gw_pane_tty" ] && [ "$gw_pane_tty" != "?" ]; then
+            gw_pane_key=$(echo "$gw_pane_tty" | sed 's|^/dev/||; s|/|_|g')
+        else
+            # Headless fallback: cwd-<sha1[:12]> (matches JS sha1(cwd).slice(0,12))
+            gw_pane_key="cwd-$(printf '%s' "$cwd" | sha1sum | awk '{print substr($1,1,12)}')"
+        fi
+
+        # 2. Resolve main repo root (shared across worktrees of the same repo)
+        gw_main_root="$gw_root"
+        gw_common_dir=$(git -C "$cwd" rev-parse --git-common-dir 2>/dev/null)
+        if [ -n "$gw_common_dir" ]; then
+            case "$gw_common_dir" in
+                /*) gw_abs_common="$gw_common_dir" ;;
+                *)  gw_abs_common=$(cd "$cwd" 2>/dev/null && cd "$gw_common_dir" 2>/dev/null && pwd) ;;
+            esac
+            [ -n "$gw_abs_common" ] && gw_main_root=$(dirname "$gw_abs_common")
+        fi
+
+        # 3. Look up the pane state file
+        gw_repo_slug=$(echo "$gw_main_root" | sed 's|/|_|g')
+        gw_pane_file="$HOME/.claude/groundwork-state/panes/${gw_pane_key}__${gw_repo_slug}.json"
+        if [ -f "$gw_pane_file" ]; then
+            gw_project=$(jq -r '.project // empty' "$gw_pane_file" 2>/dev/null)
+        fi
+
         if [ -n "$gw_project" ]; then
             gw_segment=" \033[2m|\033[0m \033[32mProject: ${gw_project}\033[0m"
         else
