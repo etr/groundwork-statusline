@@ -251,11 +251,20 @@ else:
                 "https://api.anthropic.com/api/oauth/usage" \
                 -H "Authorization: Bearer $TOKEN" \
                 -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null)
-            if echo "$usage_json" | jq -e '.five_hour' > /dev/null 2>&1; then
+            # Only cache a response with real (non-null) utilization. A null
+            # response means "no data right now" — don't overwrite the cache,
+            # so the previous good value is kept and reused below.
+            if echo "$usage_json" | jq -e '.five_hour.utilization != null' > /dev/null 2>&1; then
                 echo "$usage_json" > "$USAGE_CACHE" 2>/dev/null
             else
                 usage_json=""
             fi
+        fi
+        # If the refresh failed (no token, timeout, null/invalid JSON), fall back
+        # to the last cached response even if stale, so the usage segment doesn't
+        # blink out on a transient error.
+        if [ -z "$usage_json" ] && [ -f "$USAGE_CACHE" ]; then
+            usage_json=$(cat "$USAGE_CACHE")
         fi
     fi
 
@@ -266,6 +275,24 @@ else:
         weekly_resets_at=$(echo "$usage_json" | jq -r '.seven_day.resets_at // empty' 2>/dev/null)
         [ -n "$session_util" ] && session_util=$(printf "%.0f" "$session_util")
         [ -n "$weekly_util"  ] && weekly_util=$(printf  "%.0f" "$weekly_util")
+    fi
+
+    # The usage API intermittently returns a null resets_at while utilization is
+    # still present. Persist the last non-null reset timestamps (per field) and
+    # reuse them when the current response omits them, so the reset countdown
+    # doesn't flicker away.
+    RESET_CACHE="$HOME/.claude/statusline-reset-cache.json"
+    prev_session_reset=""
+    prev_weekly_reset=""
+    if [ -f "$RESET_CACHE" ]; then
+        prev_session_reset=$(jq -r '.session // empty' "$RESET_CACHE" 2>/dev/null)
+        prev_weekly_reset=$(jq -r  '.weekly  // empty' "$RESET_CACHE" 2>/dev/null)
+    fi
+    [ -z "$session_resets_at" ] && session_resets_at="$prev_session_reset"
+    [ -z "$weekly_resets_at"  ] && weekly_resets_at="$prev_weekly_reset"
+    if [ -n "$session_resets_at" ] || [ -n "$weekly_resets_at" ]; then
+        printf '{"session":"%s","weekly":"%s"}\n' \
+            "$session_resets_at" "$weekly_resets_at" > "$RESET_CACHE" 2>/dev/null
     fi
 } 2>/dev/null
 
