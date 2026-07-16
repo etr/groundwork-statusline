@@ -4,6 +4,7 @@ description: Remove the groundwork-statusline from Claude Code settings
 allowed_tools:
   - Read
   - Edit
+  - Bash
   - AskUserQuestion
 ---
 
@@ -16,4 +17,8 @@ Steps:
    - If no `statusLine` key exists, tell the user "No statusLine is configured — nothing to remove." and stop.
    - If it exists but its `command` field does NOT contain `groundwork-statusline`, use AskUserQuestion to ask: "The current statusLine doesn't appear to be groundwork-statusline. Remove it anyway?" — if they say no, stop.
 3. Edit `~/.claude/settings.json` to remove the entire `statusLine` key and its value.
-4. Tell the user: "Statusline removed. Restart Claude Code (`/exit` then relaunch) to apply."
+4. Remove the wrapper script written at install time (safe if it's already gone):
+   ```bash
+   rm -f "$HOME/.claude/groundwork-statusline.sh"
+   ```
+5. Tell the user: "Statusline removed. Restart Claude Code (`/exit` then relaunch) to apply."
